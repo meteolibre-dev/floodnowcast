@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FloodNowcast Europe — FlashNet × HydroSHEDS × Poschlod IDF</title>
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <style>
+    :root {
+      --bg: #0b1120;
+      --panel: rgba(15, 23, 42, 0.92);
+      --border: rgba(148, 163, 184, 0.18);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --red: #ef4444;
+      --orange: #f97316;
+      --yellow: #facc15;
+      --green: #22c55e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+    }
+    #sidebar {
+      width: 380px;
+      min-width: 340px;
+      height: 100vh;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      z-index: 10;
+      backdrop-filter: blur(12px);
+    }
+    .header {
+      padding: 16px 18px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .title {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge-live {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      text-transform: uppercase;
+    }
+    .subtitle {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .meta-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--muted);
+      flex-wrap: wrap;
+    }
+    .meta-pill {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid var(--border);
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+    .controls {
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .control-group label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+    .btn-group {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+    .btn-group.two { grid-template-columns: repeat(2, 1fr); }
+    button.seg {
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 6px 8px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    button.seg:hover { color: var(--text); border-color: rgba(148, 163, 184, 0.4); }
+    button.seg.active {
+      background: rgba(56, 189, 248, 0.18);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .kpi {
+      background: rgba(30, 41, 59, 0.55);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      text-align: center;
+    }
+    .kpi-val { font-size: 20px; font-weight: 700; line-height: 1.1; }
+    .kpi-lbl { font-size: 10px; color: var(--muted); margin-top: 3px; text-transform: uppercase; }
+    .kpi.red .kpi-val { color: var(--red); }
+    .kpi.orange .kpi-val { color: var(--orange); }
+    .kpi.yellow .kpi-val { color: var(--yellow); }
+
+    .list-header {
+      padding: 10px 18px 6px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #basin-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0 12px 12px;
+    }
+    .basin-item {
+      background: rgba(30, 41, 59, 0.45);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 11px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: all 0.12s;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .basin-item:hover {
+      background: rgba(51, 65, 85, 0.65);
+      border-color: rgba(148, 163, 184, 0.4);
+    }
+    .basin-id { font-size: 12px; font-weight: 600; }
+    .basin-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .ratio-pill {
+      font-size: 12px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+    .ratio-3 { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.5); }
+    .ratio-2 { background: rgba(249, 115, 22, 0.2); color: #fdba74; border: 1px solid rgba(249, 115, 22, 0.5); }
+    .ratio-1 { background: rgba(250, 204, 21, 0.18); color: #fde047; border: 1px solid rgba(250, 204, 21, 0.45); }
+    .ratio-0 { background: rgba(148, 163, 184, 0.15); color: var(--muted); border: 1px solid var(--border); }
+
+    #map-wrap {
+      flex: 1;
+      position: relative;
+      height: 100vh;
+    }
+    #map { width: 100%; height: 100%; }
+
+    .radar-bar {
+      position: absolute;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 5;
+      backdrop-filter: blur(12px);
+      min-width: 460px;
+      max-width: 90%;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+    }
+    .radar-bar button {
+      background: rgba(56, 189, 248, 0.2);
+      border: 1px solid rgba(56, 189, 248, 0.45);
+      color: #fff;
+      border-radius: 8px;
+      padding: 6px 11px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .radar-bar input[type="range"] { flex: 1; accent-color: var(--accent); cursor: pointer; }
+    .time-badge {
+      font-size: 12px;
+      font-weight: 600;
+      width: 195px;
+      flex-shrink: 0;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+    .kind-tag {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 4px;
+      text-transform: uppercase;
+    }
+    .kind-obs { background: rgba(34, 197, 94, 0.2); color: #86efac; }
+    .kind-fc { background: rgba(56, 189, 248, 0.2); color: #7dd3fc; }
+
+    #detail-card {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 310px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      z-index: 5;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+      display: none;
+    }
+    #detail-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+    .detail-close {
+      position: absolute; top: 10px; right: 12px;
+      background: none; border: none; color: var(--muted);
+      font-size: 16px; cursor: pointer;
+    }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 10px;
+      font-size: 12px;
+    }
+    .d-cell {
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+    }
+    .d-lbl { font-size: 10px; color: var(--muted); }
+    .d-val { font-size: 13px; font-weight: 700; margin-top: 2px; }
+
+    .legend {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      z-index: 5;
+      font-size: 11px;
+      backdrop-filter: blur(10px);
+    }
+    .leg-row { display: flex; align-items: center; gap: 7px; margin-top: 4px; }
+    .leg-swatch { width: 12px; height: 12px; border-radius: 3px; }
+
+    .loading-toast {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--panel);
+      border: 1px solid var(--accent);
+      color: var(--text);
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      z-index: 20;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <aside id="sidebar">
+    <div class="header">
+      <div class="header-top">
+        <div class="title">🌊 FloodNowcast Europe <span class="badge-live">Live</span></div>
+      </div>
+      <div class="subtitle">FlashNet (0–3h) + Radar OPERA (−3h) × HydroSHEDS × Poschlod IDF</div>
+      <div class="meta-row">
+        <span class="meta-pill" id="meta-obs">Obs: —</span>
+        <span class="meta-pill" id="meta-fc">Run: —</span>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="control-group">
+        <label>Niveau HydroSHEDS</label>
+        <div class="btn-group" id="level-btns">
+          <button class="seg" data-level="7">Level 7</button>
+          <button class="seg active" data-level="8">Level 8</button>
+          <button class="seg" data-level="9">Level 9</button>
+        </div>
+      </div>
+      <div class="control-group">
+        <label>Variable affichée</label>
+        <div class="btn-group two" id="metric-btns">
+          <button class="seg active" data-metric="max_ratio">Indice Gradex (IDF)</button>
+          <button class="seg" data-metric="total_12h_mm">Total 12h (9h+FN)</button>
+          <button class="seg" data-metric="total_6h_mm">Total 6h (3h+FN)</button>
+          <button class="seg" data-metric="fc_3h_mm">FlashNet +3h (mm)</button>
+        </div>
+      </div>
+      <div class="control-group">
+        <label>Couches superposées</label>
+        <div class="btn-group">
+          <button class="seg active" id="toggle-radar">Radar ON</button>
+          <button class="seg active" id="toggle-vigicrues">Vigicrues ON</button>
+          <button class="seg" id="btn-refresh">↻ Rafraîchir</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi red"><div class="kpi-val" id="kpi-red">0</div><div class="kpi-lbl">≥ 100 ans</div></div>
+      <div class="kpi orange"><div class="kpi-val" id="kpi-orange">0</div><div class="kpi-lbl">≥ 30 ans</div></div>
+      <div class="kpi yellow"><div class="kpi-val" id="kpi-yellow">0</div><div class="kpi-lbl">≥ 10 ans</div></div>
+    </div>
+
+    <div class="list-header">
+      <span>Bassins les plus exposés</span>
+      <span id="active-count">0 actifs</span>
+    </div>
+    <div id="basin-list"></div>
+  </aside>
+
+  <main id="map-wrap">
+    <div id="map"></div>
+    <div class="loading-toast" id="loading-toast">Chargement des bassins…</div>
+
+    <div class="legend" id="legend">
+      <div style="font-weight:700; margin-bottom:2px;">Période de retour estimée (Gradex / IDF)</div>
+      <div class="leg-row"><span class="leg-swatch" style="background:#ef4444;"></span> ≥ 100 ans (ratio ≥ 1.45)</div>
+      <div class="leg-row"><span class="leg-swatch" style="background:#f97316;"></span> 30–100 ans (1.25 – 1.45)</div>
+      <div class="leg-row"><span class="leg-swatch" style="background:#facc15;"></span> 10–30 ans (1.00 – 1.25)</div>
+      <div class="leg-row"><span class="leg-swatch" style="background:#38bdf8; opacity:0.55;"></span> 2–10 ans (0.45 – 1.00)</div>
+    </div>
+
+    <div id="detail-card">
+      <button class="detail-close" onclick="document.getElementById('detail-card').style.display='none'">✕</button>
+      <h3 id="d-title">Bassin —</h3>
+      <div style="font-size:11px; color:var(--muted);" id="d-sub">—</div>
+      <div class="detail-grid" id="d-grid"></div>
+    </div>
+
+    <div class="radar-bar">
+      <button id="play-btn">▶ Play</button>
+      <input type="range" id="time-slider" min="0" max="0" value="0" />
+      <div class="time-badge" id="time-label">—</div>
+    </div>
+  </main>
+
+  <script>
+    const TILES_API = "https://tiles.meteolibre.dev";
+    let currentLevel = 8;
+    let currentMetric = "max_ratio";
+    let radarEnabled = true;
+    let vigicruesEnabled = true;
+    let timeline = [];
+    let playTimer = null;
+    let summaryData = null;
+    let basinsById = {};
+    const loadedLevels = new Set();
+
+    const map = new maplibregl.Map({
+      container: "map",
+      style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+      center: [4.5, 47.0],
+      zoom: 5.0
+    });
+
+    function showLoading(show, text = "Chargement…") {
+      const el = document.getElementById("loading-toast");
+      el.textContent = text;
+      el.style.display = show ? "block" : "none";
+    }
+
+    function updateLegend(metric) {
+      const el = document.getElementById("legend");
+      if (metric === "max_ratio") {
+        el.innerHTML = `
+          <div style="font-weight:700; margin-bottom:2px;">Période de retour estimée (Gradex / IDF)</div>
+          <div class="leg-row"><span class="leg-swatch" style="background:#ef4444;"></span> ≥ 100 ans (ratio ≥ 1.45)</div>
+          <div class="leg-row"><span class="leg-swatch" style="background:#f97316;"></span> 30–100 ans (1.25 – 1.45)</div>
+          <div class="leg-row"><span class="leg-swatch" style="background:#facc15;"></span> 10–30 ans (1.00 – 1.25)</div>
+          <div class="leg-row"><span class="leg-swatch" style="background:#38bdf8; opacity:0.55;"></span> 2–10 ans (0.45 – 1.00)</div>
+        `;
+      } else {
+        const titles = {
+          total_12h_mm: "Cumul 12h (9h Obs + 3h FlashNet)",
+          total_6h_mm: "Cumul 6h (3h Obs + 3h FlashNet)",
+          fc_3h_mm: "Prévision FlashNet +3h (mm)"
+        };
+        el.innerHTML = `
+          <div style="font-weight:700; margin-bottom:2px;">${titles[metric] || "Lame d'eau moyenne (mm)"}</div>
+          <div class="leg-row"><span class="leg-swatch" style="background:#ef4444;"></span> ≥ 50 mm</div>
+          <div class="leg-row"><span class="leg-swatch" style="background:#f97316;"></span> 25 – 50 mm</div>
+          <div class="leg-row"><span class="leg-swatch" style="background:#facc15;"></span> 10 – 25 mm</div>
+          <div class="leg-row"><span class="leg-swatch" style="background:#38bdf8; opacity:0.55;"></span> 2 – 10 mm</div>
+        `;
+      }
+    }
+
+    function colorExpression(metric) {
+      if (metric === "max_ratio") {
+        return [
+          "case",
+          ["==", ["feature-state", "max_ratio"], null], "rgba(0,0,0,0)",
+          [">=", ["feature-state", "max_ratio"], 1.45], "rgba(239, 68, 68, 0.76)",
+          [">=", ["feature-state", "max_ratio"], 1.25], "rgba(249, 115, 22, 0.70)",
+          [">=", ["feature-state", "max_ratio"], 1.00], "rgba(250, 204, 21, 0.62)",
+          [">=", ["feature-state", "max_ratio"], 0.45], "rgba(56, 189, 248, 0.30)",
+          "rgba(0,0,0,0)"
+        ];
+      }
+      return [
+        "case",
+        ["==", ["feature-state", metric], null], "rgba(0,0,0,0)",
+        [">=", ["feature-state", metric], 50], "rgba(239, 68, 68, 0.75)",
+        [">=", ["feature-state", metric], 25], "rgba(249, 115, 22, 0.68)",
+        [">=", ["feature-state", metric], 10], "rgba(250, 204, 21, 0.55)",
+        [">=", ["feature-state", metric], 2], "rgba(56, 189, 248, 0.35)",
+        "rgba(0,0,0,0)"
+      ];
+    }
+
+    async function ensureBasinLayer(level) {
+      const srcId = `basins-src-${level}`;
+      const fillId = `basins-fill-${level}`;
+      const lineId = `basins-line-${level}`;
+
+      if (!loadedLevels.has(level)) {
+        showLoading(true, `Chargement géométries HydroSHEDS Level ${level}…`);
+        const resp = await fetch(`/api/basins/geometry/${level}`);
+        const geojson = await resp.json();
+        map.addSource(srcId, { type: "geojson", data: geojson, promoteId: "HYBAS_ID" });
+
+        const beforeLayer = map.getLayer("radar-layer") ? "radar-layer" : undefined;
+        map.addLayer({
+          id: fillId,
+          type: "fill",
+          source: srcId,
+          paint: { "fill-color": colorExpression(currentMetric), "fill-opacity": 1.0 }
+        }, beforeLayer);
+
+        map.addLayer({
+          id: lineId,
+          type: "line",
+          source: srcId,
+          paint: { "line-color": "rgba(148, 163, 184, 0.14)", "line-width": 0.6 }
+        }, beforeLayer);
+
+        map.on("click", fillId, (e) => {
+          if (!e.features || !e.features.length) return;
+          const props = e.features[0].properties;
+          const id = String(props.HYBAS_ID);
+          const data = basinsById[id];
+          if (data) showDetail(data, props);
+        });
+        map.on("mouseenter", fillId, () => { map.getCanvas().style.cursor = "pointer"; });
+        map.on("mouseleave", fillId, () => { map.getCanvas().style.cursor = ""; });
+        loadedLevels.add(level);
+      }
+
+      for (const lv of [7, 8, 9]) {
+        if (map.getLayer(`basins-fill-${lv}`)) {
+          const vis = lv === level ? "visible" : "none";
+          map.setLayoutProperty(`basins-fill-${lv}`, "visibility", vis);
+          map.setLayoutProperty(`basins-line-${lv}`, "visibility", vis);
+        }
+      }
+    }
+
+    async function loadLevelData(level) {
+      showLoading(true, `Mise à jour bassins Level ${level}…`);
+      await ensureBasinLayer(level);
+      const resp = await fetch(`/api/flood/basins?level=${level}`);
+      const payload = await resp.json();
+      basinsById = payload.basins || {};
+
+      const srcId = `basins-src-${level}`;
+      for (const [id, row] of Object.entries(basinsById)) {
+        map.setFeatureState({ source: srcId, id: Number(id) }, row);
+      }
+      map.setPaintProperty(`basins-fill-${level}`, "fill-color", colorExpression(currentMetric));
+      renderSidebar(level);
+      showLoading(false);
+    }
+
+    async function loadSummary() {
+      const resp = await fetch("/api/flood/summary");
+      summaryData = await resp.json();
+      document.getElementById("meta-obs").textContent = `Obs: ${summaryData.obs_latest_ts || "—"}`;
+      document.getElementById("meta-fc").textContent = `Run: ${summaryData.forecast_run_time || "—"}`;
+    }
+
+    function renderSidebar(level) {
+      if (!summaryData) return;
+      const c = summaryData.counts[`lev0${level}`] || { red_3: 0, orange_2: 0, yellow_1: 0 };
+      document.getElementById("kpi-red").textContent = c.red_3;
+      document.getElementById("kpi-orange").textContent = c.orange_2;
+      document.getElementById("kpi-yellow").textContent = c.yellow_1;
+
+      const listEl = document.getElementById("basin-list");
+      const active = (summaryData.active_basins || []).filter((b) => b.level === level);
+      document.getElementById("active-count").textContent = `${active.length} actifs`;
+
+      if (!active.length) {
+        listEl.innerHTML = `<div style="padding:16px;color:var(--muted);font-size:12px;">Aucun bassin avec ratio ≥ 0.20 actuellement.</div>`;
+        return;
+      }
+
+      const fmt1 = (v) => (v == null ? "0.0" : Number(v).toFixed(1));
+      listEl.innerHTML = active.slice(0, 80).map((b) => `
+        <div class="basin-item" onclick='focusBasin(${JSON.stringify(b)})'>
+          <div>
+            <div class="basin-id">HYBAS ${b.hybas_id}</div>
+            <div class="basin-sub">${Math.round(b.sub_area_km2)} km² · 6h: <b>${fmt1(b.total_6h_mm)} mm</b> · +3h FN: ${fmt1(b.fc_3h_mm)} mm</div>
+          </div>
+          <span class="ratio-pill ratio-${b.alert_level}">${Number(b.max_ratio).toFixed(2)}×</span>
+        </div>
+      `).join("");
+    }
+
+    window.focusBasin = function (b) {
+      map.flyTo({ center: [b.centroid_lon, b.centroid_lat], zoom: Math.max(map.getZoom(), 7.5), duration: 700 });
+      showDetail(b, { SUB_AREA: b.sub_area_km2 });
+    };
+
+    function showDetail(b, props) {
+      const fmt1 = (v) => (v == null ? "0.0" : Number(v).toFixed(1));
+      const card = document.getElementById("detail-card");
+      card.style.display = "block";
+      document.getElementById("d-title").textContent = `Bassin ${b.hybas_id}`;
+      const area = props?.SUB_AREA ?? b.sub_area_km2 ?? "—";
+      document.getElementById("d-sub").textContent =
+        `Level ${currentLevel} · ${Math.round(area)} km² · tc ${fmt1(b.response_time_h)}h · ~${Math.round(b.est_return_period_y || 0)} ans (${Number(b.max_ratio).toFixed(2)}×)`;
+      document.getElementById("d-grid").innerHTML = `
+        <div class="d-cell"><div class="d-lbl">Obs 1h / 3h / 12h</div><div class="d-val">${fmt1(b.obs_1h_mm)} / ${fmt1(b.obs_3h_mm)} / ${fmt1(b.obs_12h_mm)} mm</div></div>
+        <div class="d-cell"><div class="d-lbl">FlashNet +1h / +3h</div><div class="d-val">${fmt1(b.fc_1h_mm)} / ${fmt1(b.fc_3h_mm)} mm</div></div>
+        <div class="d-cell"><div class="d-lbl">Total 6h / Total 12h</div><div class="d-val">${fmt1(b.total_6h_mm)} / ${fmt1(b.total_12h_mm)} mm</div></div>
+        <div class="d-cell"><div class="d-lbl">Pic 1h / Pic 3h</div><div class="d-val">${fmt1(b.peak_1h_mm)} / ${fmt1(b.peak_3h_mm)} mm</div></div>
+        <div class="d-cell"><div class="d-lbl">Seuil IDF 3h / 6h</div><div class="d-val">${fmt1(b.rl10_areal_3h)} / ${fmt1(b.rl10_areal_6h)} mm</div></div>
+        <div class="d-cell"><div class="d-lbl">Seuil IDF 12h</div><div class="d-val">${fmt1(b.rl10_areal_12h)} mm</div></div>
+      `;
+    }
+
+    async function loadRadarTimeline() {
+      try {
+        const resp = await fetch(`${TILES_API}/timeline?days=2&obs_hours=3`);
+        const data = await resp.json();
+        timeline = data.timestamps || data.entries || data.frames || data.timeline || [];
+        if (!timeline.length) return;
+        const slider = document.getElementById("time-slider");
+        slider.max = timeline.length - 1;
+        // Start at the obs/forecast seam if present
+        const firstFc = timeline.findIndex((t) => t.kind === "forecast");
+        slider.value = firstFc >= 0 ? firstFc : timeline.length - 1;
+        updateRadarFrame(Number(slider.value));
+      } catch (err) {
+        console.warn("Timeline load failed:", err);
+      }
+    }
+
+    function updateRadarFrame(idx) {
+      if (!timeline.length) return;
+      const entry = timeline[idx];
+      const ts = entry.timestamp || entry.time;
+      const dt = (entry.datetime || ts).replace("T", " ").slice(0, 16) + " UTC";
+      const isObs = entry.kind === "obs";
+      document.getElementById("time-label").innerHTML =
+        `${dt} <span class="kind-tag ${isObs ? "kind-obs" : "kind-fc"}">${isObs ? "OBS" : "FLASHNET"}</span>`;
+
+      const tileUrl = `${TILES_API}/tiles/{z}/{x}/{y}.png?band=radar&time=${ts}`;
+      if (map.getSource("radar-src")) {
+        map.getSource("radar-src").setTiles([tileUrl]);
+      } else {
+        map.addSource("radar-src", { type: "raster", tiles: [tileUrl], tileSize: 256, maxzoom: 12 });
+        map.addLayer({
+          id: "radar-layer",
+          type: "raster",
+          source: "radar-src",
+          paint: { "raster-opacity": radarEnabled ? 0.65 : 0.0 }
+        });
+      }
+    }
+
+    document.getElementById("time-slider").addEventListener("input", (e) => {
+      updateRadarFrame(Number(e.target.value));
+    });
+
+    document.getElementById("play-btn").addEventListener("click", (e) => {
+      if (playTimer) {
+        clearInterval(playTimer);
+        playTimer = null;
+        e.target.textContent = "▶ Play";
+      } else {
+        e.target.textContent = "⏸ Pause";
+        playTimer = setInterval(() => {
+          const s = document.getElementById("time-slider");
+          const next = (Number(s.value) + 1) % timeline.length;
+          s.value = next;
+          updateRadarFrame(next);
+        }, 650);
+      }
+    });
+
+    document.getElementById("toggle-radar").addEventListener("click", (e) => {
+      radarEnabled = !radarEnabled;
+      e.target.classList.toggle("active", radarEnabled);
+      e.target.textContent = radarEnabled ? "Radar ON" : "Radar OFF";
+      if (map.getLayer("radar-layer")) {
+        map.setPaintProperty("radar-layer", "raster-opacity", radarEnabled ? 0.65 : 0.0);
+      }
+    });
+
+    document.querySelectorAll("#level-btns button").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        document.querySelectorAll("#level-btns button").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        currentLevel = Number(btn.dataset.level);
+        await loadLevelData(currentLevel);
+      });
+    });
+
+    document.querySelectorAll("#metric-btns button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#metric-btns button").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        currentMetric = btn.dataset.metric;
+        updateLegend(currentMetric);
+        if (map.getLayer(`basins-fill-${currentLevel}`)) {
+          map.setPaintProperty(`basins-fill-${currentLevel}`, "fill-color", colorExpression(currentMetric));
+        }
+      });
+    });
+
+    async function loadVigicrues() {
+      try {
+        const resp = await fetch("/api/vigicrues");
+        if (!resp.ok) return;
+        const geojson = await resp.json();
+        if (map.getSource("vigicrues-src")) {
+          map.getSource("vigicrues-src").setData(geojson);
+          return;
+        }
+        map.addSource("vigicrues-src", { type: "geojson", data: geojson });
+        map.addLayer({
+          id: "vigicrues-layer",
+          type: "line",
+          source: "vigicrues-src",
+          layout: {
+            "line-cap": "round",
+            "line-join": "round",
+            "visibility": vigicruesEnabled ? "visible" : "none"
+          },
+          paint: {
+            "line-color": [
+              "match", ["get", "NivInfViCr"],
+              4, "#dc2626",
+              3, "#f97316",
+              2, "#facc15",
+              "rgba(34, 197, 94, 0.35)"
+            ],
+            "line-width": [
+              "match", ["get", "NivInfViCr"],
+              4, 4.5,
+              3, 3.8,
+              2, 2.8,
+              1.1
+            ]
+          }
+        });
+
+        const lvlNames = { 1: "Vert", 2: "Jaune", 3: "Orange", 4: "Rouge" };
+        const lvlColors = { 1: "#22c55e", 2: "#facc15", 3: "#f97316", 4: "#ef4444" };
+        map.on("click", "vigicrues-layer", (e) => {
+          if (!e.features || !e.features.length) return;
+          const p = e.features[0].properties;
+          const lvl = Number(p.NivInfViCr || 1);
+          new maplibregl.Popup({ closeButton: true })
+            .setLngLat(e.lngLat)
+            .setHTML(`
+              <div style="color:#0f172a;font-size:12px;line-height:1.4;">
+                <div style="font-weight:700;">🌊 ${p.lbentcru || "Tronçon Vigicrues"}</div>
+                <div>Code: ${p.CdEntCru || "—"}</div>
+                <div>Vigilance: <b style="color:${lvlColors[lvl]}">${lvlNames[lvl] || lvl}</b></div>
+              </div>
+            `)
+            .addTo(map);
+        });
+        map.on("mouseenter", "vigicrues-layer", () => { map.getCanvas().style.cursor = "pointer"; });
+        map.on("mouseleave", "vigicrues-layer", () => { map.getCanvas().style.cursor = ""; });
+      } catch (err) {
+        console.warn("Vigicrues load failed:", err);
+      }
+    }
+
+    document.getElementById("toggle-vigicrues").addEventListener("click", (e) => {
+      vigicruesEnabled = !vigicruesEnabled;
+      e.target.classList.toggle("active", vigicruesEnabled);
+      e.target.textContent = vigicruesEnabled ? "Vigicrues ON" : "Vigicrues OFF";
+      if (map.getLayer("vigicrues-layer")) {
+        map.setLayoutProperty("vigicrues-layer", "visibility", vigicruesEnabled ? "visible" : "none");
+      }
+    });
+
+    document.getElementById("btn-refresh").addEventListener("click", async () => {
+      await loadSummary();
+      await loadLevelData(currentLevel);
+      await loadVigicrues();
+    });
+
+    map.on("load", async () => {
+      await loadRadarTimeline();
+      await loadSummary();
+      await loadLevelData(currentLevel);
+      await loadVigicrues();
+    });
+  </script>
+</body>
+</html>
